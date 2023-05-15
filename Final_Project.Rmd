@@ -20,7 +20,7 @@ library(ggmap)
 zillow_data <- read_csv("Zillow_Data.csv")
 ```
 
-Preprocessing the Data
+
 ```{r}
 # Clean and filter data
 zillow_data_clean <- zillow_data %>%
@@ -30,6 +30,7 @@ zillow_data_clean <- zillow_data %>%
 
 
 ```
+
 
 ```{r, include=FALSE}
 
