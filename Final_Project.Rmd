@@ -1,0 +1,156 @@
+---
+title: 'Final Project: Zillow Home Value Index'
+author: "Jon Flees"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load libraries ... install.packages() any you do not have
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(viridis)
+library(maps)
+library(ggmap)
+
+# Read in data from CSV
+zillow_data <- read_csv("Zillow_Data.csv")
+```
+
+Preprocessing the Data
+```{r}
+# Clean and filter data
+zillow_data_clean <- zillow_data %>%
+  pivot_longer(cols = starts_with("20"), names_to = "Date", values_to = "Value") %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d")) %>%
+  filter(Date == max(Date)) # Keep only last month's data
+
+
+```
+
+```{r, include=FALSE}
+
+# The following code is how I geocoded the data using a Google API,
+#  you do NOT need to run this code.
+
+# Load ggmap library
+#library(ggmap)
+
+# Register Google API key to use for geocoding
+#register_google(key = "YOUR_API_KEY")
+
+
+# Geocoding the city locations and saving the results
+
+# Add longitude and latitude for each city (in a separate data frame)
+#zillow_geocode_results <- zillow_data_clean %>%
+#  mutate(location = paste(RegionName, StateName, sep = ", ")) %>%
+#  rowwise() %>%
+#  mutate(coords = list(geocode(location, source = "google")),
+#         lat = ifelse(is.null(coords), NA, coords$lat),
+#         long = ifelse(is.null(coords), NA, coords$lon)) %>%
+#  select(-coords) %>%
+#  ungroup()
+
+```
+
+
+```{r}
+
+# Read in geocode data from CSV
+zillow_geocode_results <- read_csv("zillow_geocode_results.csv")
+
+# Filter out rows with missing latitude and longitude
+zillow_data_map <- zillow_geocode_results %>%
+  filter(!is.na(lat) & !is.na(long))
+
+# Compute the interquartile range (IQR) for longitude
+long_iqr <- IQR(zillow_data_map$long)
+
+# Compute the lower and upper bounds for outliers
+lower_bound <- quantile(zillow_data_map$long, 0.25) - 1.5 * long_iqr
+upper_bound <- quantile(zillow_data_map$long, 0.75) + 1.5 * long_iqr
+
+# Remove outliers from zillow_data_map_filtered
+zillow_data_map <- zillow_data_map %>%
+  filter(long > lower_bound & long < upper_bound)
+
+# Get US map data
+us_map_data <- maps::map("state", plot = FALSE, fill = TRUE)
+
+# Convert US map data to a simple features object
+us_map_sf <- sf::st_as_sf(us_map_data)
+
+# Create a base US map
+us_map_base <- ggplot() +
+  geom_sf(data = us_map_sf, fill = "gray80", color = "gray85") +
+  coord_sf(datum = NA) +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(gganimate)
+# This part will create the animation, takes about 5min to run
+
+# Remove the filter for only the last month's data
+zillow_data_clean <- zillow_data %>%
+  pivot_longer(cols = starts_with("20"), names_to = "Date", values_to = "Value") %>%
+  mutate(Date = as.Date(Date, format = "%Y-%m-%d")) %>% drop_na(Value)
+
+# Join the clean Zillow data with the geocode results
+zillow_data_map <- left_join(zillow_data_clean, zillow_geocode_results, by = c("RegionName", "StateName")) %>%
+  filter(!is.na(lat) & !is.na(long) & long > lower_bound & long < upper_bound)
+
+
+# Create the plot for the animation
+us_map_points <- us_map_base +
+  geom_point(data = zillow_data_map, aes(x = long, y = lat, size = Value.x, color = Value.x, alpha = Value.x)) +
+  scale_size_continuous(name = "Home Value", range = c(0.01, 3.5), labels = dollar) +
+  scale_color_gradient(name = "Home Value", low = "cornflowerblue", high = "firebrick4", labels = dollar) +
+  scale_alpha_continuous(guide = "none", range = c(0.50, 0.75)) +
+  labs(
+    title = "US Map with Median Home Values by City",
+    #subtitle = glue("Zillow Home Value Index - {format(frame_time(), '%B %Y')}"), # Attempted adding month of frame to visual... did not work
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank()
+  ) +
+  transition_time(Date.x) +
+  shadow_mark()
+
+# Render the animation
+animation <- animate(us_map_points, fps = 12, duration = 18)
+
+# Save the animation to a file
+anim_save("animated_map.mp4", animation)
+
+# My computer was having issues playing an mp4 file so I converted it to .mov using a free online source: https://cloudconvert.com/mp4-to-mov 
+
+```
+
+
+```{r}
+# Recreate the last frame (most recent month)
+us_map_points <- us_map_base +
+  geom_point(data = zillow_data_map, aes(x = long, y = lat, size = Value.x, color = Value.x, alpha = Value.x)) +
+  scale_size_continuous(name = "Home Value", range = c(0.01, 3.5), labels = dollar) +
+  scale_color_gradient(name = "Home Value", low = "cornflowerblue", high = "firebrick4", labels = dollar) +
+  scale_alpha_continuous(guide = "none", range = c(0.50, 0.75)) +
+  labs(
+    title = "US Map with Median Home Values by City",
+    subtitle =  "Zillow Home Value Index (March 2023)",
+    x='', y=''
+  )
+
+us_map_points
+```
+
